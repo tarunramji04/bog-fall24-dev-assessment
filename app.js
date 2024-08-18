@@ -10,13 +10,13 @@ const APP_PORT = 5000;
 const mongoURI = process.env.DATABASE_URI;
 
 app.use(cors({ origin: true }));
+app.use(express.json());
 app.use('/api', routes);
 
 app.get('/', (req, res) => {
     res.json({"Hello": "World",
             "Version": 2})
 })
-
 
 mongoose.connect(mongoURI)
     .then(() => {
