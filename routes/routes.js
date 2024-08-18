@@ -1,16 +1,20 @@
-import express from 'express';
+import express from 'express'
 import { Animal } from '../models/animal.js'
 import { TrainingLog } from '../models/trainingLog.js'
 import { User } from '../models/user.js'
 import bcrypt from 'bcryptjs'
-import mongoose from "mongoose";
+import mongoose from "mongoose"
+import jwt from "jsonwebtoken"
+import 'dotenv/config'
+import authenticateToken from './middleware.js'
 
 const router = express.Router();
 
-router.get('/health', (req, res) => {
+router.get('/health', authenticateToken, (req, res) => {
     res.status(200).json({ "healthy": true });
 })
 
+//did not include middleware function as user needs to create account first 
 router.post('/user', async (req, res) => {
     const { firstName, lastName, email, password, profilePicture } = req.body;
 
@@ -42,19 +46,30 @@ router.post('/user', async (req, res) => {
     }
 })
 
-router.post('/animal', async (req, res) => {
-    const { name, hoursTrained, owner, dateOfBirth, profilePicture } = req.body;
+router.post('/animal', authenticateToken, async (req, res) => {
+    const { name, hoursTrained, dateOfBirth, profilePicture } = req.body;
 
     try {
-        if (typeof name !== "string" || typeof hoursTrained !== "number" || !mongoose.Types.ObjectId.isValid(owner) ||
-            (dateOfBirth instanceof Date && !isNaN(dateOfBirth)) || (profilePicture && typeof profilePicture !== "string")) {
+        const ownerId = req.user.id;
+
+        if (typeof name !== "string" || typeof hoursTrained !== "number" || (dateOfBirth instanceof Date && !isNaN(dateOfBirth)) ||
+            (profilePicture && typeof profilePicture !== "string") || !ownerId || !mongoose.Types.ObjectId.isValid(ownerId)) {
                 return res.status(400).json({ message: 'Request contains incorrect information' });
+        }
+
+        const exists = await Animal.findOne({
+            name: name,
+            owner: ownerId
+        });
+        
+        if (exists) {
+            return res.status(400).json({ message: 'Animal already exists' });
         }
 
         await Animal.create({
             name: name,
             hoursTrained: hoursTrained,
-            owner: owner, 
+            owner: ownerId, 
             dateOfBirth: dateOfBirth, 
             profilePicture: profilePicture
         });
@@ -65,12 +80,25 @@ router.post('/animal', async (req, res) => {
     }
 })
 
-router.post('/training', async (req, res) => {
-    const { date, description, hours, animal, user, trainingLogVideo } = req.body;
+router.post('/training', authenticateToken, async (req, res) => {
+    const { date, description, hours, animal, trainingLogVideo } = req.body;
     try {
+        const userId = req.user.id;
+
         if ((date instanceof Date && !isNaN(dateOfBirth)) || typeof description !== "string" || typeof hours !== "number" ||
-            !mongoose.Types.ObjectId.isValid(animal) || !mongoose.Types.ObjectId.isValid(user) || (trainingLogVideo && typeof trainingLogVideo !== "string")) {
+            !mongoose.Types.ObjectId.isValid(animal) || !userId || !mongoose.Types.ObjectId.isValid(userId) ||
+            (trainingLogVideo && typeof trainingLogVideo !== "string")) {
                 return res.status(400).json({ message: 'Request contains incorrect information' });
+        }
+
+        const animalVerify = await Animal.findById(animal);
+        if (!animalVerify) {
+            return res.status(400).json({ message: 'Animal doesn\'t exist' });
+        }
+        
+        const ownerString = animalVerify.owner.toString();
+        if (ownerString !== userId) {
+            return res.status(400).json({ message: 'Animal doesn\'t belong to user' });
         }
 
         await TrainingLog.create({
@@ -78,7 +106,7 @@ router.post('/training', async (req, res) => {
             description: description,
             hours: hours,
             animal: animal,
-            user: user,
+            user: userId,
             trainingLogVideo: trainingLogVideo
         });
 
@@ -89,7 +117,7 @@ router.post('/training', async (req, res) => {
     }
 })
 
-router.get('/admin/users', async (req, res) => {
+router.get('/admin/users', authenticateToken, async (req, res) => {
     const { lastId, limit } = req.body;
     try {
         let users;
@@ -116,7 +144,7 @@ router.get('/admin/users', async (req, res) => {
     }
 })
 
-router.get('/admin/animals', async (req, res) => {
+router.get('/admin/animals', authenticateToken, async (req, res) => {
     const { lastId, limit } = req.body;
     try {
         let animals;
@@ -150,7 +178,7 @@ router.get('/admin/animals', async (req, res) => {
     }
 })
 
-router.get('/admin/training', async (req, res) => {
+router.get('/admin/training', authenticateToken, async (req, res) => {
     const { lastId, limit } = req.body;
     try {
         let logs;
@@ -190,5 +218,44 @@ router.get('/admin/training', async (req, res) => {
     }
 })
 
+router.post('/user/login', async (req, res) => {
+    const { email, password } = req.body;
+    try {
+        const user = await User.findOne({ email: email });
+        if (!user) {
+            return res.status(403).json({ message: "Invalid email" });
+        }
+
+        const check = await bcrypt.compare(password, user.password);
+        if (!check) {
+            return res.status(403).json({ message: "Incorrect password" });
+        }
+        res.status(200).json({ message: "Successful login" });
+    } catch(error) {
+        res.status(500).json({ message: error.message });
+    }
+})
+
+router.post('/user/verify', async (req, res) => {
+    const { email, password } = req.body;
+    try {
+        const user = await User.findOne({ email: email });
+        if (!user) {
+            return res.status(403).json({ message: "Invalid email" });
+        }
+
+        const check = await bcrypt.compare(password, user.password);
+        if (!check) {
+            return res.status(403).json({ message: "Incorrect password" });
+        }
+
+        const payload = { id: user._id, firstName: user.firstName, lastName: user.lastName, email : user.email };
+        const accessToken = jwt.sign(payload, process.env.JWT_STRING, {expiresIn: 60 * 60});
+
+        res.status(200).json({ token: accessToken });
+    } catch(error) {
+        res.status(500).json({ message: error.message });
+    }
+})
 
 export default router;
