@@ -267,11 +267,38 @@ router.post('/file/upload', fileUpload(), express.urlencoded({ extended: true })
             return res.status(500).json({ message: 'Request contains incorrect information' });
         }
 
-        if (req.files.file) {
-            const result = await uploadToS3(req.files.file);
-            return res.status(200).json({ message: 'Upload successful', data: result });
-        } else {
+        if (!req.files || !req.files.file) {
             return res.status(500).json({ message: 'No file received' });
+        }
+
+        if (fileType == "AnimalImage") {
+            const animal = await Animal.findById(id);
+            if (!animal) {
+                return res.status(500).json({ message: 'No animal with this id exists' });
+            }
+            //result is object key
+            const result = await uploadToS3(req.files.file);
+            animal.profilePicture = result;
+            await animal.save();
+            return res.status(200).json({ message: 'Upload successful'});
+        } else if (fileType == "UserImage") {
+            const user = await User.findById(id);
+            if (!user) {
+                return res.status(500).json({ message: 'No user with this id exists' });
+            }
+            const result = await uploadToS3(req.files.file);
+            user.profilePicture = result;
+            await user.save();
+            return res.status(200).json({ message: 'Upload successful'});           
+        } else if (fileType == "TrainingLogVideo") {
+            const trainingLog = await TrainingLog.findById(id);
+            if (!trainingLog) {
+                return res.status(500).json({ message: 'No training log with this id exists' });
+            }
+            const result = await uploadToS3(req.files.file);
+            trainingLog.trainingLogVideo = result;
+            await trainingLog.save();
+            return res.status(200).json({ message: 'Upload successful'});      
         }
     } catch(error) {
         res.status(500).json({ message: error.message});
