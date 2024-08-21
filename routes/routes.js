@@ -1,4 +1,4 @@
-import express from 'express'
+import express, { urlencoded } from 'express';
 import { Animal } from '../models/animal.js'
 import { TrainingLog } from '../models/trainingLog.js'
 import { User } from '../models/user.js'
@@ -7,6 +7,8 @@ import mongoose from "mongoose"
 import jwt from "jsonwebtoken"
 import 'dotenv/config'
 import authenticateToken from './middleware.js'
+import uploadToS3 from './helpers.js'
+import fileUpload from 'express-fileupload';
 
 const router = express.Router();
 
@@ -223,14 +225,14 @@ router.post('/user/login', async (req, res) => {
     try {
         const user = await User.findOne({ email: email });
         if (!user) {
-            return res.status(403).json({ message: "Invalid email" });
+            return res.status(403).json({ message: 'Invalid email' });
         }
 
         const check = await bcrypt.compare(password, user.password);
         if (!check) {
-            return res.status(403).json({ message: "Incorrect password" });
+            return res.status(403).json({ message: 'Incorrect password' });
         }
-        res.status(200).json({ message: "Successful login" });
+        res.status(200).json({ message: 'Successful login' });
     } catch(error) {
         res.status(500).json({ message: error.message });
     }
@@ -241,12 +243,12 @@ router.post('/user/verify', async (req, res) => {
     try {
         const user = await User.findOne({ email: email });
         if (!user) {
-            return res.status(403).json({ message: "Invalid email" });
+            return res.status(403).json({ message: 'Invalid email' });
         }
 
         const check = await bcrypt.compare(password, user.password);
         if (!check) {
-            return res.status(403).json({ message: "Incorrect password" });
+            return res.status(403).json({ message: 'Incorrect password' });
         }
 
         const payload = { id: user._id, firstName: user.firstName, lastName: user.lastName, email : user.email };
@@ -255,6 +257,24 @@ router.post('/user/verify', async (req, res) => {
         res.status(200).json({ token: accessToken });
     } catch(error) {
         res.status(500).json({ message: error.message });
+    }
+})
+
+router.post('/file/upload', fileUpload(), express.urlencoded({ extended: true }), async (req, res) => {
+    try {
+        const { fileType, id } = req.body;
+        if (!(fileType === "AnimalImage" || fileType === "UserImage" || fileType === "TrainingLogVideo") || !mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(500).json({ message: 'Request contains incorrect information' });
+        }
+
+        if (req.files.file) {
+            const result = await uploadToS3(req.files.file);
+            return res.status(200).json({ message: 'Upload successful', data: result });
+        } else {
+            return res.status(500).json({ message: 'No file received' });
+        }
+    } catch(error) {
+        res.status(500).json({ message: error.message});
     }
 })
 
