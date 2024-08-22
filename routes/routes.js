@@ -1,4 +1,4 @@
-import express, { urlencoded } from 'express';
+import express from 'express';
 import { Animal } from '../models/animal.js'
 import { TrainingLog } from '../models/trainingLog.js'
 import { User } from '../models/user.js'
@@ -260,10 +260,11 @@ router.post('/user/verify', async (req, res) => {
     }
 })
 
-router.post('/file/upload', fileUpload(), express.urlencoded({ extended: true }), async (req, res) => {
+router.post('/file/upload', authenticateToken, fileUpload(), express.urlencoded({ extended: true }), async (req, res) => {
+    const { fileType, id } = req.body;
     try {
-        const { fileType, id } = req.body;
-        if (!(fileType === "AnimalImage" || fileType === "UserImage" || fileType === "TrainingLogVideo") || !mongoose.Types.ObjectId.isValid(id)) {
+        const userId = req.user.id;
+        if (!(fileType === "AnimalImage" || fileType === "UserImage" || fileType === "TrainingLogVideo") || !mongoose.Types.ObjectId.isValid(id) || !userId) {
             return res.status(500).json({ message: 'Request contains incorrect information' });
         }
 
@@ -276,6 +277,10 @@ router.post('/file/upload', fileUpload(), express.urlencoded({ extended: true })
             if (!animal) {
                 return res.status(500).json({ message: 'No animal with this id exists' });
             }
+            const owner = animal.owner.toString();
+            if (owner !== userId) {
+                return res.status(500).json({ message: 'Animal doesn\'t belong to user' });
+            }
             //result is object key
             const result = await uploadToS3(req.files.file);
             animal.profilePicture = result;
@@ -286,6 +291,9 @@ router.post('/file/upload', fileUpload(), express.urlencoded({ extended: true })
             if (!user) {
                 return res.status(500).json({ message: 'No user with this id exists' });
             }
+            if (user.id.toString() !== userId) {
+                return res.status(500).json({ message: 'Users must use their own id' });
+            }
             const result = await uploadToS3(req.files.file);
             user.profilePicture = result;
             await user.save();
@@ -294,6 +302,10 @@ router.post('/file/upload', fileUpload(), express.urlencoded({ extended: true })
             const trainingLog = await TrainingLog.findById(id);
             if (!trainingLog) {
                 return res.status(500).json({ message: 'No training log with this id exists' });
+            }
+            const logUser = trainingLog.user.toString();
+            if (logUser !== userId) {
+                return res.status(500).json({ message: 'Training log doesn\'t belong to user' });
             }
             const result = await uploadToS3(req.files.file);
             trainingLog.trainingLogVideo = result;
