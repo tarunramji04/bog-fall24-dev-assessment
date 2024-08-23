@@ -268,6 +268,7 @@ router.post('/file/upload', authenticateToken, fileUpload(), express.urlencoded(
             return res.status(500).json({ message: 'Request contains incorrect information' });
         }
 
+        //file is accessible from req.files when using fileUpload middleware
         if (!req.files || !req.files.file) {
             return res.status(500).json({ message: 'No file received' });
         }
